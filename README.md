@@ -1,2 +1,2 @@
-# cristallum
+# Cristallum
 A game about war.
