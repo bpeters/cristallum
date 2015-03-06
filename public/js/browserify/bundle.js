@@ -43,7 +43,7 @@ var Grid = require('./lib/grid');
 var entities = require('./entities');
 
 //game
-var world, timeStep=1/60, camera, scene, light, webglRenderer, container;
+var world, timeStep=1/60, camera, scene, light, webglRenderer, container, grid, hexEntities;
 
 var SCREEN_WIDTH = window.innerWidth;
 var SCREEN_HEIGHT = window.innerHeight;
@@ -52,8 +52,9 @@ var windowHalfX = window.innerWidth / 2;
 var windowHalfY = window.innerHeight / 2;
 
 var CAMERA_START_X = 1000;
-var CAMERA_START_Y = 1000;
+var CAMERA_START_Y = 800;
 var CAMERA_START_Z = 0;
+var cameraTop;
 
 //init
 initThree();
@@ -67,6 +68,8 @@ function initThree() {
 	container = document.createElement('div');
 	document.body.appendChild(container);
 
+	container.addEventListener('click', checkHex, false);
+
 	//camera
 	camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 1, 100000);
 	camera.position.x = CAMERA_START_X;
@@ -74,8 +77,20 @@ function initThree() {
 	camera.position.z = CAMERA_START_Z;
 	camera.lookAt({
 		x: 0,
-		y: 150,
+		y: 0,
 		z: 0
+	});
+
+	key('space', function(){
+		cameraTop = !cameraTop;
+		camera.position.x = cameraTop ? 0 : CAMERA_START_X;
+		camera.position.y = cameraTop ? 1200 : CAMERA_START_Y;
+		camera.position.z = 0;
+		camera.lookAt({
+			x: 0,
+			y: 0,
+			z: 0
+		});
 	});
 
 	scene = new THREE.Scene();
@@ -119,10 +134,10 @@ function initCannon() {
 
 function initEntities(callback) {
 	entities.loadGeometry(function(geometry) {
-		var hexEntities = [];
+		hexEntities = [];
 		var width = 210;
 		var height = (Math.sqrt(3) / 2) * width;
-		var grid = new Grid();
+		grid = new Grid();
 		var coordinates = grid.hexagonCoordinates(0, 0, 3);
 
 		for (var i = 0; i < coordinates.length; i++) {
@@ -134,6 +149,10 @@ function initEntities(callback) {
 			}
 			hex.mesh.position.set(q, 0, r);
 			scene.add(hex.mesh);
+			hex.width = width;
+			hex.height = height;
+			hex.q = coordinates[i].q;
+			hex.r = coordinates[i].r;
 			hexEntities.push(hex);
 		}
 		return callback(hexEntities);
@@ -158,33 +177,47 @@ function animate(hexEntities) {
 
 	var rotSpeed = 0.01;
 	var zoomSpeed = 0.1;
+	var moveSpeed = 10;
 	var x = camera.position.x,
 		y = camera.position.y,
 		z = camera.position.z;
 
-	//player input
-	if(key.isPressed("left")) {
-		camera.position.x = x * Math.cos(rotSpeed) + z * Math.sin(rotSpeed);
-		camera.position.z = z * Math.cos(rotSpeed) - x * Math.sin(rotSpeed);
-	}
-	if(key.isPressed("right")) {
-		camera.position.x = x * Math.cos(rotSpeed) - z * Math.sin(rotSpeed);
-		camera.position.z = z * Math.cos(rotSpeed) + x * Math.sin(rotSpeed);
-	}
-	if(key.isPressed("up")) {
-		camera.fov -= zoomSpeed;
-	}
-	if(key.isPressed("down")) {
-		camera.fov += zoomSpeed;
+	if (!cameraTop) {
+		if(key.isPressed("left")) {
+			camera.position.x = x * Math.cos(rotSpeed) + z * Math.sin(rotSpeed);
+			camera.position.z = z * Math.cos(rotSpeed) - x * Math.sin(rotSpeed);
+		}
+		if(key.isPressed("right")) {
+			camera.position.x = x * Math.cos(rotSpeed) - z * Math.sin(rotSpeed);
+			camera.position.z = z * Math.cos(rotSpeed) + x * Math.sin(rotSpeed);
+		}
+		if(key.isPressed("up")) {
+			camera.fov -= zoomSpeed;
+		}
+		if(key.isPressed("down")) {
+			camera.fov += zoomSpeed;
+		}
+		camera.lookAt({
+			x: 0,
+			y: 0,
+			z: 0
+		});
+	} else {
+		if(key.isPressed("left")) {
+			camera.position.z += moveSpeed;
+		}
+		if(key.isPressed("right")) {
+			camera.position.z -= moveSpeed;
+		}
+		if(key.isPressed("up")) {
+			camera.position.x -= moveSpeed;
+		}
+		if(key.isPressed("down")) {
+			camera.position.x += moveSpeed;
+		}
 	}
 
 	camera.updateProjectionMatrix();
-
-	camera.lookAt({
-		x: 0,
-		y: 0,
-		z: 0
-	});
 
 	render();
 }
@@ -200,6 +233,37 @@ function render() {
 	webglRenderer.render(scene, camera);
 }
 
+function checkHex(e) {
+	e.preventDefault();
+	var x = e.x;
+	var y = e.y;
+
+	for(var i = 0; i < hexEntities.length; i++) {
+		var cords = toScreenXY(hexEntities[i].mesh);
+		hexEntities[i].score = Math.abs(cords.x - x) + Math.abs(cords.y - y);
+	}
+
+	var selectedHex = _.min(hexEntities, function(hex) {
+		return hex.score;
+	});
+
+	selectedHex.mesh.material.color = '#000000';
+
+}
+
+function toScreenXY(mesh) {
+	var widthHalf = windowHalfX, heightHalf = windowHalfY;
+
+	var vector = new THREE.Vector3();
+	vector.setFromMatrixPosition( mesh.matrixWorld );
+	vector.project( camera );
+
+	vector.x = ( vector.x * widthHalf ) + widthHalf;
+	vector.y = - ( vector.y * heightHalf ) + heightHalf;
+
+	return {x: vector.x, y: vector.y};
+}
+
 },{"./entities":1,"./lib/grid":3,"boids":4,"cannon":6,"keymaster":8,"lodash":9,"three":10}],3:[function(require,module,exports){
 /*
 * Author: Robert Brewitz <hello@robertbrewitz.com>
@@ -211,8 +275,8 @@ function render() {
 var module = module || {};
 
 function Grid () {
-  this.tileSize    = 100;
-  this.tileSpacing = 0;
+  this.tileSize    = 200;
+  this.tileSpacing = 10;
   this.pointyTiles = false;
   this.withOrigin  = true;
 }
@@ -251,7 +315,7 @@ Grid.prototype.hexagonCoordinates = function (q, r, radius, ring) {
         currentQ += moveDirections[moveDirection][0];
         currentR += moveDirections[moveDirection][1];
 
-        if (moveDirection != 0) {
+        if (moveDirection !== 0) {
           result.push({ q: currentQ, r: currentR });
         }
       }
@@ -291,8 +355,8 @@ Grid.prototype.pixelToDecimalQR = function (x, y, scale) {
   q /= scale;
   r /= scale;
 
-  return { q: q, r: r }
-}
+  return { q: q, r: r };
+};
 
 Grid.prototype.neighborCoordinates = function (q, r) {
   var result = [];
@@ -307,7 +371,7 @@ Grid.prototype.neighborCoordinates = function (q, r) {
   }
 
   return result;
-}
+};
 
 Grid.prototype.axialDistance = function (q1, r1, q2, r2) {
   return (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs(q1 + r1 - q2 - r2)) / 2;
@@ -338,15 +402,15 @@ Grid.prototype.roundCube = function (coordinates) {
     rz = -rx-ry;
   }
 
-  return { x: rx, y: ry, z: rz }
-}
+  return { x: rx, y: ry, z: rz };
+};
 
 Grid.prototype.cubeToAxial = function (cube) {
-  return { q: cube.x, r: cube.y }
+  return { q: cube.x, r: cube.y };
 };
 
 Grid.prototype.axialToCube = function (axial) {
-  return { x: axial.q, y: axial.r, z: -axial.q-axial.r }
+  return { x: axial.q, y: axial.r, z: -axial.q-axial.r };
 };
 
 module.exports = Grid;

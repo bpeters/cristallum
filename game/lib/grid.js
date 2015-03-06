@@ -8,8 +8,8 @@
 var module = module || {};
 
 function Grid () {
-  this.tileSize    = 100;
-  this.tileSpacing = 0;
+  this.tileSize    = 200;
+  this.tileSpacing = 10;
   this.pointyTiles = false;
   this.withOrigin  = true;
 }
@@ -48,7 +48,7 @@ Grid.prototype.hexagonCoordinates = function (q, r, radius, ring) {
         currentQ += moveDirections[moveDirection][0];
         currentR += moveDirections[moveDirection][1];
 
-        if (moveDirection != 0) {
+        if (moveDirection !== 0) {
           result.push({ q: currentQ, r: currentR });
         }
       }
@@ -88,8 +88,8 @@ Grid.prototype.pixelToDecimalQR = function (x, y, scale) {
   q /= scale;
   r /= scale;
 
-  return { q: q, r: r }
-}
+  return { q: q, r: r };
+};
 
 Grid.prototype.neighborCoordinates = function (q, r) {
   var result = [];
@@ -104,7 +104,7 @@ Grid.prototype.neighborCoordinates = function (q, r) {
   }
 
   return result;
-}
+};
 
 Grid.prototype.axialDistance = function (q1, r1, q2, r2) {
   return (Math.abs(q1 - q2) + Math.abs(r1 - r2) + Math.abs(q1 + r1 - q2 - r2)) / 2;
@@ -135,15 +135,15 @@ Grid.prototype.roundCube = function (coordinates) {
     rz = -rx-ry;
   }
 
-  return { x: rx, y: ry, z: rz }
-}
+  return { x: rx, y: ry, z: rz };
+};
 
 Grid.prototype.cubeToAxial = function (cube) {
-  return { q: cube.x, r: cube.y }
+  return { q: cube.x, r: cube.y };
 };
 
 Grid.prototype.axialToCube = function (axial) {
-  return { x: axial.q, y: axial.r, z: -axial.q-axial.r }
+  return { x: axial.q, y: axial.r, z: -axial.q-axial.r };
 };
 
 module.exports = Grid;
