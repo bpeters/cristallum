@@ -6,7 +6,7 @@ function randomIntFromInterval(min, max) {
 	return Math.floor(Math.random()*(max-min+1)+min);
 }
 
-exports.loadGeometry = function(callback) {
+exports.loadHexGeometry = function(callback) {
 	var loader = new THREE.JSONLoader();
 	loader.load(
 		'assets/hex.json',
@@ -21,7 +21,9 @@ exports.hex = function(geometry) {
 	var hex = {};
 
 	var material = new THREE.MeshPhongMaterial({
-		color: 0xFFFFFF
+		color: 0x9EC66E,
+		transparent: true,
+		opacity: 0.5
 	});
 	var mesh = new THREE.Mesh( geometry, material );
 
@@ -33,7 +35,44 @@ exports.hex = function(geometry) {
 	return hex;
 };
 
-},{"cannon":6,"three":10}],2:[function(require,module,exports){
+exports.base = function() {
+	var base = {};
+
+	var geometry = new THREE.CylinderGeometry( 50, 50, 50, 6, 32 );
+	var material = new THREE.MeshBasicMaterial({
+		color: 0xffffff,
+		transparent: true,
+		opacity: 0.8
+	});
+	var mesh = new THREE.Mesh( geometry, material );
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+
+	base.mesh = mesh;
+
+	return base;
+};
+
+exports.army = function() {
+	var army = {};
+
+	var geometry = new THREE.SphereGeometry( 25, 32, 32 );
+	var material = new THREE.MeshBasicMaterial({
+		color: 0xffffff,
+		transparent: true,
+		opacity: 0.8
+	});
+	var mesh = new THREE.Mesh( geometry, material );
+
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+
+	army.mesh = mesh;
+
+	return army;
+};
+
+},{"cannon":7,"three":11}],2:[function(require,module,exports){
 var THREE = require('three');
 var CANNON = require('cannon');
 var key = require('keymaster');
@@ -41,9 +80,12 @@ var boids = require('boids');
 var _ = require('lodash');
 var Grid = require('./lib/grid');
 var entities = require('./entities');
+var player = require('./player');
 
 //game
-var world, timeStep=1/60, camera, scene, light, webglRenderer, container, grid, hexEntities;
+var world, timeStep=1/60, camera, scene, light, webglRenderer, container, grid;
+var playerStartHex, armyStartHexs=[];
+var hexEntities = [], baseEntities = [], armyEntities = [];
 
 var SCREEN_WIDTH = window.innerWidth;
 var SCREEN_HEIGHT = window.innerHeight;
@@ -54,14 +96,24 @@ var windowHalfY = window.innerHeight / 2;
 var CAMERA_START_X = 1000;
 var CAMERA_START_Y = 800;
 var CAMERA_START_Z = 0;
+var CAMERA_START_FOV = 60;
 var cameraTop;
 
 //init
-initThree();
-initCannon();
-initEntities(function(hexEntities){
-	animate(hexEntities);
+loadAssets(function(assets){
+	initThree();
+	initCannon();
+	initEntities(assets);
+	animate();
 });
+
+function loadAssets(callback) {
+	var assets = {};
+	entities.loadHexGeometry(function(geometry) {
+		assets.hexGeometry = geometry;
+		return callback(assets);
+	});
+}
 
 function initThree() {
 
@@ -75,6 +127,7 @@ function initThree() {
 	camera.position.x = CAMERA_START_X;
 	camera.position.y = CAMERA_START_Y;
 	camera.position.z = CAMERA_START_Z;
+	camera.fov = CAMERA_START_FOV;
 	camera.lookAt({
 		x: 0,
 		y: 0,
@@ -132,32 +185,46 @@ function initCannon() {
 	world.solver.iterations = 10;
 }
 
-function initEntities(callback) {
-	entities.loadGeometry(function(geometry) {
-		hexEntities = [];
-		var width = 210;
-		var height = (Math.sqrt(3) / 2) * width;
-		grid = new Grid();
-		var coordinates = grid.hexagonCoordinates(0, 0, 3);
+function initEntities(assets) {
+	var width = 210;
+	var height = (Math.sqrt(3) / 2) * width;
+	grid = new Grid();
+	var coordinates = grid.hexagonCoordinates(0, 0, 3);
 
-		for (var i = 0; i < coordinates.length; i++) {
-			var q = coordinates[i].q * height;
-			var r = coordinates[i].r * (width * 3/4);
-			var hex = entities.hex(geometry);
-			if (coordinates[i].r !== 0) {
-				q = q + height * coordinates[i].r / 2;
-			}
-			hex.mesh.position.set(q, 0, r);
-			scene.add(hex.mesh);
-			hex.width = width;
-			hex.height = height;
-			hex.q = coordinates[i].q;
-			hex.r = coordinates[i].r;
-			hexEntities.push(hex);
+	for (var i = 0; i < coordinates.length; i++) {
+		var q = coordinates[i].q * height;
+		var r = coordinates[i].r * (width * 3/4);
+		var hex = entities.hex(assets.hexGeometry);
+		if (coordinates[i].r !== 0) {
+			q = q + height * coordinates[i].r / 2;
 		}
-		return callback(hexEntities);
+		hex.mesh.position.set(q, 0, r);
+		scene.add(hex.mesh);
+		hex.width = width;
+		hex.height = height;
+		hex.q = coordinates[i].q;
+		hex.r = coordinates[i].r;
+		hexEntities.push(hex);
+	}
 
+	playerStartHex = player.getPlayerBase(hexEntities);
+
+	var base = entities.base();
+	base.mesh.position.copy(playerStartHex.mesh.position);
+	base.mesh.position.y += 100;
+	baseEntities.push(base);
+	scene.add(base.mesh);
+
+	armyStartHexs = player.getPlayerArmies(hexEntities, playerStartHex);
+
+	_.forEach(armyStartHexs, function(hex){
+		var army = entities.army();
+		army.mesh.position.copy(hex.mesh.position);
+		army.mesh.position.y += 100;
+		armyEntities.push(base);
+		scene.add(army.mesh);
 	});
+
 }
 
 function onWindowResize() {
@@ -170,11 +237,23 @@ function onWindowResize() {
 	webglRenderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function animate(hexEntities) {
+function animate() {
 
 	requestAnimationFrame(animate);
 	updatePhysics();
+	cameraControl();
 
+	render();
+}
+
+function updatePhysics() {
+
+	// Step the physics world
+	world.step(timeStep);
+
+}
+
+function cameraControl() {
 	var rotSpeed = 0.01;
 	var zoomSpeed = 0.1;
 	var moveSpeed = 10;
@@ -216,17 +295,7 @@ function animate(hexEntities) {
 			camera.position.x += moveSpeed;
 		}
 	}
-
 	camera.updateProjectionMatrix();
-
-	render();
-}
-
-function updatePhysics() {
-
-	// Step the physics world
-	world.step(timeStep);
-
 }
 
 function render() {
@@ -247,7 +316,10 @@ function checkHex(e) {
 		return hex.score;
 	});
 
-	selectedHex.mesh.material.color = '#000000';
+	if (selectedHex.score < selectedHex.width / 2) {
+		selectedHex.mesh.material.opacity = 0.9;
+		console.log(selectedHex);
+	}
 
 }
 
@@ -264,7 +336,7 @@ function toScreenXY(mesh) {
 	return {x: vector.x, y: vector.y};
 }
 
-},{"./entities":1,"./lib/grid":3,"boids":4,"cannon":6,"keymaster":8,"lodash":9,"three":10}],3:[function(require,module,exports){
+},{"./entities":1,"./lib/grid":3,"./player":4,"boids":5,"cannon":7,"keymaster":9,"lodash":10,"three":11}],3:[function(require,module,exports){
 /*
 * Author: Robert Brewitz <hello@robertbrewitz.com>
 * License: MIT
@@ -416,6 +488,51 @@ Grid.prototype.axialToCube = function (axial) {
 module.exports = Grid;
 
 },{}],4:[function(require,module,exports){
+var THREE = require('three');
+var CANNON = require('cannon');
+var _ = require('lodash');
+
+function randomIntFromInterval(min, max) {
+	return Math.floor(Math.random()*(max-min+1)+min);
+}
+
+exports.getPlayerBase = function(hexEntities) {
+	var filteredEntities = _.filter(hexEntities, function(hex) {
+		return hex.r === 0;
+	});
+
+	var playerStartHex = _.max(filteredEntities, function(hex) {
+		return hex.q;
+	});
+
+	return playerStartHex;
+};
+
+exports.getPlayerArmies = function(hexEntities, player) {
+	var filteredEntities = _.filter(hexEntities, function(hex) {
+		return ((
+			hex.r === player.r + 1 &&
+			(
+				hex.q === player.q - 1 ||
+				hex.q === player.q
+			)) || (
+			hex.r === player.r - 1 &&
+			(
+				hex.q === player.q + 1 ||
+				hex.q === player.q
+			)) || (
+			hex.q === player.q - 1 &&
+			hex.r === player.r
+			) || (
+			hex.q === player.q + 1 &&
+			hex.r === player.r
+		));
+	});
+
+	return filteredEntities;
+};
+
+},{"cannon":7,"lodash":10,"three":11}],5:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter
   , inherits = require('inherits')
   , sqrt = Math.sqrt
@@ -577,7 +694,7 @@ Boids.prototype.tick = function() {
   this.emit('tick', boids)
 }
 
-},{"events":7,"inherits":5}],5:[function(require,module,exports){
+},{"events":8,"inherits":6}],6:[function(require,module,exports){
 module.exports = inherits
 
 function inherits (c, p, proto) {
@@ -608,7 +725,7 @@ function inherits (c, p, proto) {
 //inherits(Child, Parent)
 //new Child
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 (function (global){
 /*
  * Copyright (c) 2014 cannon.js Authors
@@ -12300,7 +12417,7 @@ World.prototype.internalStep = function(dt){
 (2)
 });
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -12603,7 +12720,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 //     keymaster.js
 //     (c) 2011-2013 Thomas Fuchs
 //     keymaster.js may be freely distributed under the MIT license.
@@ -12901,7 +13018,7 @@ function isUndefined(arg) {
 
 })(this);
 
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 (function (global){
 /**
  * @license
@@ -24326,7 +24443,7 @@ function isUndefined(arg) {
 }.call(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 var self = self || {};// File:src/Three.js
 
 /**
@@ -59071,4 +59188,4 @@ if (typeof exports !== 'undefined') {
   this['THREE'] = THREE;
 }
 
-},{}]},{},[1,2,3]);
+},{}]},{},[1,2,3,4]);

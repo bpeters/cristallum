@@ -5,9 +5,12 @@ var boids = require('boids');
 var _ = require('lodash');
 var Grid = require('./lib/grid');
 var entities = require('./entities');
+var player = require('./player');
 
 //game
-var world, timeStep=1/60, camera, scene, light, webglRenderer, container, grid, hexEntities;
+var world, timeStep=1/60, camera, scene, light, webglRenderer, container, grid;
+var playerStartHex, armyStartHexs=[];
+var hexEntities = [], baseEntities = [], armyEntities = [];
 
 var SCREEN_WIDTH = window.innerWidth;
 var SCREEN_HEIGHT = window.innerHeight;
@@ -18,14 +21,24 @@ var windowHalfY = window.innerHeight / 2;
 var CAMERA_START_X = 1000;
 var CAMERA_START_Y = 800;
 var CAMERA_START_Z = 0;
+var CAMERA_START_FOV = 60;
 var cameraTop;
 
 //init
-initThree();
-initCannon();
-initEntities(function(hexEntities){
-	animate(hexEntities);
+loadAssets(function(assets){
+	initThree();
+	initCannon();
+	initEntities(assets);
+	animate();
 });
+
+function loadAssets(callback) {
+	var assets = {};
+	entities.loadHexGeometry(function(geometry) {
+		assets.hexGeometry = geometry;
+		return callback(assets);
+	});
+}
 
 function initThree() {
 
@@ -39,6 +52,7 @@ function initThree() {
 	camera.position.x = CAMERA_START_X;
 	camera.position.y = CAMERA_START_Y;
 	camera.position.z = CAMERA_START_Z;
+	camera.fov = CAMERA_START_FOV;
 	camera.lookAt({
 		x: 0,
 		y: 0,
@@ -96,32 +110,46 @@ function initCannon() {
 	world.solver.iterations = 10;
 }
 
-function initEntities(callback) {
-	entities.loadGeometry(function(geometry) {
-		hexEntities = [];
-		var width = 210;
-		var height = (Math.sqrt(3) / 2) * width;
-		grid = new Grid();
-		var coordinates = grid.hexagonCoordinates(0, 0, 3);
+function initEntities(assets) {
+	var width = 210;
+	var height = (Math.sqrt(3) / 2) * width;
+	grid = new Grid();
+	var coordinates = grid.hexagonCoordinates(0, 0, 3);
 
-		for (var i = 0; i < coordinates.length; i++) {
-			var q = coordinates[i].q * height;
-			var r = coordinates[i].r * (width * 3/4);
-			var hex = entities.hex(geometry);
-			if (coordinates[i].r !== 0) {
-				q = q + height * coordinates[i].r / 2;
-			}
-			hex.mesh.position.set(q, 0, r);
-			scene.add(hex.mesh);
-			hex.width = width;
-			hex.height = height;
-			hex.q = coordinates[i].q;
-			hex.r = coordinates[i].r;
-			hexEntities.push(hex);
+	for (var i = 0; i < coordinates.length; i++) {
+		var q = coordinates[i].q * height;
+		var r = coordinates[i].r * (width * 3/4);
+		var hex = entities.hex(assets.hexGeometry);
+		if (coordinates[i].r !== 0) {
+			q = q + height * coordinates[i].r / 2;
 		}
-		return callback(hexEntities);
+		hex.mesh.position.set(q, 0, r);
+		scene.add(hex.mesh);
+		hex.width = width;
+		hex.height = height;
+		hex.q = coordinates[i].q;
+		hex.r = coordinates[i].r;
+		hexEntities.push(hex);
+	}
 
+	playerStartHex = player.getPlayerBase(hexEntities);
+
+	var base = entities.base();
+	base.mesh.position.copy(playerStartHex.mesh.position);
+	base.mesh.position.y += 100;
+	baseEntities.push(base);
+	scene.add(base.mesh);
+
+	armyStartHexs = player.getPlayerArmies(hexEntities, playerStartHex);
+
+	_.forEach(armyStartHexs, function(hex){
+		var army = entities.army();
+		army.mesh.position.copy(hex.mesh.position);
+		army.mesh.position.y += 100;
+		armyEntities.push(base);
+		scene.add(army.mesh);
 	});
+
 }
 
 function onWindowResize() {
@@ -134,11 +162,23 @@ function onWindowResize() {
 	webglRenderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function animate(hexEntities) {
+function animate() {
 
 	requestAnimationFrame(animate);
 	updatePhysics();
+	cameraControl();
 
+	render();
+}
+
+function updatePhysics() {
+
+	// Step the physics world
+	world.step(timeStep);
+
+}
+
+function cameraControl() {
 	var rotSpeed = 0.01;
 	var zoomSpeed = 0.1;
 	var moveSpeed = 10;
@@ -180,17 +220,7 @@ function animate(hexEntities) {
 			camera.position.x += moveSpeed;
 		}
 	}
-
 	camera.updateProjectionMatrix();
-
-	render();
-}
-
-function updatePhysics() {
-
-	// Step the physics world
-	world.step(timeStep);
-
 }
 
 function render() {
@@ -211,7 +241,10 @@ function checkHex(e) {
 		return hex.score;
 	});
 
-	selectedHex.mesh.material.color = '#000000';
+	if (selectedHex.score < selectedHex.width / 2) {
+		selectedHex.mesh.material.opacity = 0.9;
+		console.log(selectedHex);
+	}
 
 }
 
